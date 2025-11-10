@@ -140,6 +140,7 @@ func averages(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
+	// a little unclear how this works if used by the same user in more than one server
 	if strings.HasPrefix(m.Content, "!avg") {
 		avgAll := averageSlice(allRolls)
 		avgUser := averageSlice(rollsByUser[m.Author.ID])
@@ -174,7 +175,7 @@ func help(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if err != nil {
 		log.Println(err)
 	}
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!roll flat - make a plain d100 ended roll"))
+	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!roll flat - make a plain d100 roll"))
 	if err != nil {
 		log.Println(err)
 	}
@@ -182,21 +183,20 @@ func help(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if err != nil {
 		log.Println(err)
 	}
+	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!reset - reset all averages"))
+	if err != nil {
+		log.Println(err)
+	}
 
 }
 
 func averageSlice(numbers []int) float64 {
-	// Handle empty slice case to prevent division by zero.
 	if len(numbers) == 0 {
 		return 0
 	}
-
 	var sum float64
-	// Loop through the slice to sum all elements.
 	for _, number := range numbers {
 		sum += float64(number)
 	}
-
-	// Divide the sum by the count of elements to get the average.
 	return sum / float64(len(numbers))
 }

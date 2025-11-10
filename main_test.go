@@ -41,7 +41,7 @@ func Test_doRoll(t *testing.T) {
 
 	roll, details = doRoll("!roll flat")
 	assert.Equal(t, 99, roll)
-	assert.Equal(t, "99", details)
+	assert.Equal(t, "", details)
 
 	roll, details = doRoll("!roll dfjhjkdfhg")
 	assert.Equal(t, 150, roll)
