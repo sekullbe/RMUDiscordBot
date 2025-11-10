@@ -41,6 +41,7 @@ func main() {
 	}
 
 	sess.AddHandler(roll)
+	sess.AddHandler(say)
 	sess.AddHandler(averages)
 	sess.AddHandler(help)
 
@@ -114,6 +115,26 @@ func roll(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
+// TODO could probably combine this with roll()
+func say(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+	if strings.HasPrefix(m.Content, "!say") {
+		diceResult, details := doRoll(m.Content)
+		rollsByUser[m.Author.ID] = append(rollsByUser[m.Author.ID], diceResult)
+		if details != "" {
+			details = fmt.Sprintf("[%s]", details)
+		}
+		if strings.HasPrefix(m.Content, "!say") {
+			_, err := s.ChannelMessageSendTTS(m.ChannelID, fmt.Sprintf("%d", diceResult))
+			if err != nil {
+				log.Println(err)
+			}
+		}
+	}
+}
+
 func doRoll(command string) (int, string) {
 
 	var diceResult int
@@ -166,28 +187,15 @@ func help(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if !strings.HasPrefix(m.Content, "!help") {
 		return
 	}
-	// error handling is getting a bit absurd here
-	_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("RMU Bot Commands:"))
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!roll - make an open ended roll"))
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!roll flat - make a plain d100 roll"))
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!avg - display average dice rolls"))
-	if err != nil {
-		log.Println(err)
-	}
-	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!reset - reset all averages"))
-	if err != nil {
-		log.Println(err)
-	}
 
+	_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf(`RMU Bot Commands:
+!roll - make an open ended d100 roll
+!roll flat - make a plain d100 roll
+!avg - display average dice rolls
+!reset - reset all averages`))
+	if err != nil {
+		log.Println(err)
+	}
 }
 
 func averageSlice(numbers []int) float64 {
