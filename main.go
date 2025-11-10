@@ -18,6 +18,9 @@ import (
 
 var d100 dice.Die
 
+var allRolls []int
+var rollsByUser map[string][]int
+
 func main() {
 
 	var token string
@@ -38,6 +41,8 @@ func main() {
 	}
 
 	sess.AddHandler(roll)
+	sess.AddHandler(averages)
+	sess.AddHandler(help)
 
 	sess.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
 
@@ -48,6 +53,7 @@ func main() {
 	defer sess.Close()
 
 	setupDice()
+	rollsByUser = make(map[string][]int)
 
 	fmt.Println("the bot is online")
 
@@ -96,13 +102,101 @@ func roll(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	if strings.HasPrefix(m.Content, "!roll") {
 
-		diceResult, details := rollOE()
-
-		log.Println(fmt.Sprintf("Result: [%s] %d ", details, diceResult))
-
-		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Result: [%s] %d", details, diceResult))
+		diceResult, details := doRoll(m.Content)
+		rollsByUser[m.Author.ID] = append(rollsByUser[m.Author.ID], diceResult)
+		if details != "" {
+			details = fmt.Sprintf("[%s]", details)
+		}
+		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Result: %s %d", details, diceResult))
 		if err != nil {
 			log.Println(err)
 		}
 	}
+}
+
+func doRoll(command string) (int, string) {
+
+	var diceResult int
+	var details string
+
+	var diceDetails string
+	_, err := fmt.Sscanf(command, "!roll %s", &diceDetails)
+	if err != nil {
+		diceResult, details = rollOE()
+	} else if diceDetails == "flat" {
+		diceResult = d100.RollN(1).Total
+		details = ""
+	} else {
+		diceResult, details = rollOE()
+	}
+
+	allRolls = append(allRolls, diceResult)
+
+	return diceResult, details
+}
+
+func averages(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// don't respond to myself
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+	if strings.HasPrefix(m.Content, "!avg") {
+		avgAll := averageSlice(allRolls)
+		avgUser := averageSlice(rollsByUser[m.Author.ID])
+		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("All: %.1f  You: %.1f", avgAll, avgUser))
+		if err != nil {
+			log.Println(err)
+		}
+	}
+	if strings.HasPrefix(m.Content, "!reset") {
+		allRolls = []int{}
+		clear(rollsByUser)
+		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Reset averages"))
+		if err != nil {
+			log.Println(err)
+		}
+	}
+}
+
+func help(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+	if !strings.HasPrefix(m.Content, "!help") {
+		return
+	}
+	// error handling is getting a bit absurd here
+	_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("RMU Bot Commands:"))
+	if err != nil {
+		log.Println(err)
+	}
+	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!roll - make an open ended roll"))
+	if err != nil {
+		log.Println(err)
+	}
+	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!roll flat - make a plain d100 ended roll"))
+	if err != nil {
+		log.Println(err)
+	}
+	_, err = s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("!avg - display average dice rolls"))
+	if err != nil {
+		log.Println(err)
+	}
+
+}
+
+func averageSlice(numbers []int) float64 {
+	// Handle empty slice case to prevent division by zero.
+	if len(numbers) == 0 {
+		return 0
+	}
+
+	var sum float64
+	// Loop through the slice to sum all elements.
+	for _, number := range numbers {
+		sum += float64(number)
+	}
+
+	// Divide the sum by the count of elements to get the average.
+	return sum / float64(len(numbers))
 }
