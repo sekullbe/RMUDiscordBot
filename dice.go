@@ -34,6 +34,7 @@ func setupDice() {
 	src := rand.NewSource(time.Now().UnixNano())
 	random := roller.WithRandomSource(src)
 	d100 = dice.Regular(random, 100)
+	d10 = dice.Regular(random, 10)
 }
 
 func rollOE() (int, string) {

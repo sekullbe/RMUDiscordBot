@@ -14,9 +14,19 @@ import (
 )
 
 var d100 dice.Die
+var d10 dice.Die
 
 var allRolls []int
 var rollsByUser map[string][]int
+
+type initStore struct {
+	id   string
+	name string
+	mod  int
+	isPC bool
+}
+
+var initiatives map[string]map[string]initStore
 
 func main() {
 
@@ -49,6 +59,7 @@ func main() {
 
 	setupDice()
 	rollsByUser = make(map[string][]int)
+	initiatives = make(map[string]map[string]initStore)
 
 	fmt.Println("the bot is online")
 
@@ -81,6 +92,8 @@ func dispatch(s *discordgo.Session, m *discordgo.MessageCreate) {
 		generalDiceHandler(s, m)
 	case "!dhelp":
 		diceHelpHandler(s, m)
+	case "!init", "!i":
+		initiativeHandler(s, m)
 	case "!say":
 		sayHandler(s, m)
 	case "!avg":
