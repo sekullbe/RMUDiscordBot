@@ -77,6 +77,10 @@ func dispatch(s *discordgo.Session, m *discordgo.MessageCreate) {
 	case "!roll", "!r":
 		//rollHandler(s, m)
 		rwaHandler(s, m)
+	case "!dice", "!d":
+		generalDiceHandler(s, m)
+	case "!dhelp":
+		diceHelpHandler(s, m)
 	case "!say":
 		sayHandler(s, m)
 	case "!avg":

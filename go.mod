@@ -5,6 +5,7 @@ go 1.25.4
 require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/jcheng31/diceroller v0.0.0-20180515054448-210341f4dab2
+	github.com/justinian/dice v1.0.3
 	github.com/stretchr/testify v1.11.1
 )
 
