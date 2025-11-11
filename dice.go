@@ -15,7 +15,7 @@ func doRoll(command string) (int, string) {
 	var details string
 
 	var diceDetails string
-	_, err := fmt.Sscanf(command, "!roll %s", &diceDetails)
+	_, err := fmt.Sscanf(command, "!rollHandler %s", &diceDetails)
 	if err != nil {
 		diceResult, details = rollOE()
 	} else if diceDetails == "flat" {

@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
@@ -36,10 +37,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	sess.AddHandler(roll)
-	sess.AddHandler(say)
-	sess.AddHandler(averages)
-	sess.AddHandler(help)
+	sess.AddHandler(dispatch)
 
 	sess.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
 
@@ -57,5 +55,41 @@ func main() {
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
+
+}
+
+func dispatch(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// don't respond to myself
+	if m.Author.ID == s.State.User.ID {
+		return
+	}
+	if !strings.HasPrefix(m.Content, "!") {
+		return
+	}
+
+	tokens := strings.Split(m.Content, " ")
+	command := tokens[0]
+	//args := tokens[1:] // let them handle their own args
+	// It's still necessary to pass the session to the handler so they can send messages, unless
+	// they are refactored to return the response as a string for the dispatcher to send.
+	// And the message so they can extract sender ID for things like the averagesHandler.
+	switch command {
+	case "!roll":
+	case "!r":
+		rollHandler(s, m)
+	case "!say":
+		sayHandler(s, m)
+	case "!avg":
+		averagesHandler(s, m)
+	case "!reset":
+		resetHandler(s, m)
+	case "!help":
+		helpHandler(s, m)
+	default:
+		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Unknown command: %s", command))
+		if err != nil {
+			log.Println(err)
+		}
+	}
 
 }
