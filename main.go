@@ -68,15 +68,15 @@ func dispatch(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 
 	tokens := strings.Split(m.Content, " ")
-	command := tokens[0]
+	command := strings.ToLower(tokens[0])
 	//args := tokens[1:] // let them handle their own args
 	// It's still necessary to pass the session to the handler so they can send messages, unless
 	// they are refactored to return the response as a string for the dispatcher to send.
 	// And the message so they can extract sender ID for things like the averagesHandler.
 	switch command {
-	case "!roll":
-	case "!r":
-		rollHandler(s, m)
+	case "!roll", "!r":
+		//rollHandler(s, m)
+		rwaHandler(s, m)
 	case "!say":
 		sayHandler(s, m)
 	case "!avg":
