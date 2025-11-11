@@ -102,6 +102,8 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	parts = append(parts, "0")
 	parts = append(parts, "0")
 
+	who := whoIsThis(m)
+
 	if parts[1] == "reg" {
 		if initiatives[m.ChannelID] == nil {
 			initiatives[m.ChannelID] = make(map[string]initStore)
@@ -109,7 +111,7 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 		is := initStore{
 			id:   m.Author.ID,
-			name: m.Author.DisplayName(),
+			name: who,
 			mod:  0,
 			isPC: false,
 		}
@@ -134,7 +136,7 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		delName := ""
 		if isNumber(parts[2]) {
 			delId = m.Author.ID
-			delName = m.Author.DisplayName()
+			delName = who
 		} else {
 			delId = parts[2]
 			delName = parts[2]
@@ -254,4 +256,13 @@ func isNumber(s string) bool {
 		return true
 	}
 	return false
+}
+
+func whoIsThis(m *discordgo.MessageCreate) string {
+	// There's a bug in the underlying library so that m.Member.DisplayName() doesn't work.
+	name := m.Member.Nick
+	if name == "" {
+		name = m.Author.DisplayName()
+	}
+	return name
 }
