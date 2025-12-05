@@ -45,11 +45,11 @@ func rollWithArguments(m *discordgo.MessageCreate) string {
 
 	switch {
 	case modifier > 0:
-		return fmt.Sprintf("Result: %s + %d = %d", details, modifier, diceResult)
+		return fmt.Sprintf("%s rolls: %s + %d = %d", whoIsThis(m), details, modifier, diceResult)
 	case modifier < 0:
-		return fmt.Sprintf("Result: %s %d = %d", details, modifier, diceResult)
+		return fmt.Sprintf("%s rolls: %s %d = %d", whoIsThis(m), details, modifier, diceResult)
 	default:
-		return fmt.Sprintf("Result: %s %d", details, diceResult)
+		return fmt.Sprintf("%s rolls: %s %d", whoIsThis(m), details, diceResult)
 	}
 }
 
