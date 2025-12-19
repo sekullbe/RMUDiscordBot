@@ -104,7 +104,8 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	who := whoIsThis(m)
 
-	if parts[1] == "reg" {
+	switch parts[1] {
+	case "reg":
 		if initiatives[m.ChannelID] == nil {
 			initiatives[m.ChannelID] = make(map[string]initStore)
 		}
@@ -128,7 +129,7 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		initiatives[m.ChannelID][is.id] = is
 
 		sendMessage(s, m.ChannelID, fmt.Sprintf("Registered initiative score for %s", is.name))
-	} else if parts[1] == "rem" {
+	case "rem":
 		if initiatives[m.ChannelID] == nil {
 			initiatives[m.ChannelID] = make(map[string]initStore)
 		}
@@ -143,19 +144,29 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 		delete(initiatives[m.ChannelID], delId)
 		sendMessage(s, m.ChannelID, fmt.Sprintf("Removed initiative score for %s", delName))
-	} else if parts[1] == "roll" || parts[1] == "round" {
+	case "roll", "round":
 		response := rollRound(s, m)
 		sendMessage(s, m.ChannelID, response)
-	} else if parts[1] == "clearnpc" {
+	case "list":
+		msg := "Registered initiative bonuses:\n"
+		for _, is := range initiatives[m.ChannelID] {
+			pc := "NPC"
+			if is.isPC {
+				pc = "PC"
+			}
+			msg += fmt.Sprintf("%s (%s): %d\n", is.name, pc, is.mod)
+		}
+		sendMessage(s, m.ChannelID, msg)
+	case "clearnpc":
 		for id, is := range initiatives[m.ChannelID] {
 			if !is.isPC {
 				delete(initiatives[m.ChannelID], id)
 			}
 		}
 		sendMessage(s, m.ChannelID, "Removed all NPCs from initiative list")
-	} else if parts[1] == "help" {
+	case "help":
 		initHelpHandler(s, m)
-	} else {
+	default:
 		parts := strings.Split(m.Content, " ")
 		modifier := 0
 		for _, p := range parts[1:] {
@@ -165,7 +176,7 @@ func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 		}
 		result := d10.RollN(2)
-		sendMessage(s, m.ChannelID, fmt.Sprintf("%v + %d = %d", result.Rolls, modifier, result.Total+modifier))
+		sendMessage(s, m.ChannelID, fmt.Sprintf("%s: %v + %d = %d", whoIsThis(m), result.Rolls, modifier, result.Total+modifier))
 	}
 }
 
@@ -235,6 +246,7 @@ func initHelpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 !init rem - remove your PC from the initiative list
 !init rem [name] - remove a NPC from the initiative list
 !init roll, !init round - Roll initiative for all registered characters
+!init list - list all registered initiatives
 !init clearnpc - Remove all NPCs from the initiative list (e.g. after a combat)`)
 }
 
