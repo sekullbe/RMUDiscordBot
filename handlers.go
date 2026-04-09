@@ -19,6 +19,18 @@ func sendMessage(session *discordgo.Session, channelID string, message string) {
 	}
 }
 
+func sendDM(s *discordgo.Session, userID string, message string) {
+	ch, err := s.UserChannelCreate(userID)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	_, err = s.ChannelMessageSend(ch.ID, message)
+	if err != nil {
+		log.Println(err)
+	}
+}
+
 func rwaHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 	sendMessage(s, m.ChannelID, rollWithArguments(m))
 }
@@ -77,13 +89,9 @@ func sayHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func averagesHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-
 	avgAll := averageSlice(allRolls)
 	avgUser := averageSlice(rollsByUser[m.Author.ID])
-	_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("All: %.1f  You: %.1f", avgAll, avgUser))
-	if err != nil {
-		log.Println(err)
-	}
+	sendDM(s, m.Author.ID, fmt.Sprintf("All: %.1f  You: %.1f", avgAll, avgUser))
 }
 
 func resetHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -219,7 +227,7 @@ func parseIntOrZero(s string) int {
 }
 
 func helpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, `RMU Bot Commands:
+	sendDM(s, m.Author.ID, `RMU Bot Commands:
 !roll, !r - make an open ended d100 roll. Any numbers after this will be treated as modifiers.
 !roll flat - make a plain d100 roll
 !init - roll initiative (2d10). Any numbers after this will be treated as modifiers.
@@ -230,7 +238,7 @@ func helpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func diceHelpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, `Dice Roll Formatting:
+	sendDM(s, m.Author.ID, `Dice Roll Formatting:
 Standard: xdy[[k|d][h|l]z][+/-c] - rolls and sums x y-sided dice, keeping or dropping the lowest or highest z dice and optionally adding or subtracting c. Example: 4d6kh3+4
 Fudge: xdf[+/-c] - rolls and sums x fudge dice (Dice that returns numbers between -1 and 1), and optionally adding or subtracting c. Example: 4df+4
 Versus: xdy[e|r]vt - rolls x y-sided dice, counting the number that roll t or greater.
