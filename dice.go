@@ -9,18 +9,12 @@ import (
 	"github.com/jcheng31/diceroller/roller"
 )
 
-func doRoll(command string) (int, string) {
-
+func doRoll(flat bool) (int, string) {
 	var diceResult int
 	var details string
 
-	var diceDetails string
-	_, err := fmt.Sscanf(command, "!roll %s", &diceDetails)
-	if err != nil {
-		diceResult, details = rollOE()
-	} else if diceDetails == "flat" {
+	if flat {
 		diceResult = d100.RollN(1).Total
-		details = ""
 	} else {
 		diceResult, details = rollOE()
 	}

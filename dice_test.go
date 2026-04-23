@@ -47,23 +47,23 @@ func Test_doRoll(t *testing.T) {
 	predetermined := roller.WithSequence([]int{100, 50, 99, 100, 50, 100, 50, 1, 50})
 	d100 = dice.Regular(predetermined, 100)
 
-	roll, details := doRoll("!roll")
+	roll, details := doRoll(false)
 	assert.Equal(t, 150, roll)
 	assert.Equal(t, "100 50", details)
 
-	roll, details = doRoll("!roll flat")
+	roll, details = doRoll(true)
 	assert.Equal(t, 99, roll)
 	assert.Equal(t, "", details)
 
-	roll, details = doRoll("!roll dfjhjkdfhg")
+	roll, details = doRoll(false)
 	assert.Equal(t, 150, roll)
 	assert.Equal(t, "100 50", details)
 
-	roll, details = doRoll("!roll  ")
+	roll, details = doRoll(false)
 	assert.Equal(t, 150, roll)
 	assert.Equal(t, "100 50", details)
 
-	roll, details = doRoll("!roll  ")
+	roll, details = doRoll(false)
 	assert.Equal(t, -49, roll)
 	assert.Equal(t, "1 -50", details)
 
