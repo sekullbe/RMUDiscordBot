@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
@@ -28,12 +27,158 @@ type initStore struct {
 
 var initiatives map[string]map[string]initStore
 
+var commands = []*discordgo.ApplicationCommand{
+	{
+		Name:        "roll",
+		Description: "Make an open ended d100 roll",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionInteger,
+				Name:        "modifier",
+				Description: "Modifier to add to the roll",
+				Required:    false,
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionBoolean,
+				Name:        "flat",
+				Description: "Make a plain d100 roll without open-ending",
+				Required:    false,
+			},
+		},
+	},
+	{
+		Name:        "dice",
+		Description: "Roll general dice (not tracked for averages)",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionString,
+				Name:        "expression",
+				Description: "Dice expression (e.g. 4d6kh3+4)",
+				Required:    true,
+			},
+		},
+	},
+	{
+		Name:        "say",
+		Description: "Roll dice and announce result with text-to-speech",
+	},
+	{
+		Name:        "avg",
+		Description: "Display your average RM d100 rolls (only visible to you)",
+	},
+	{
+		Name:        "reset",
+		Description: "Reset all roll averages",
+	},
+	{
+		Name:        "help",
+		Description: "Display bot commands (only visible to you)",
+	},
+	{
+		Name:        "dhelp",
+		Description: "Display dice roll formatting help (only visible to you)",
+	},
+	{
+		Name:        "init",
+		Description: "Initiative system",
+		Options: []*discordgo.ApplicationCommandOption{
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "quick",
+				Description: "Roll 2d10 initiative with an optional modifier",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "modifier",
+						Description: "Initiative modifier",
+						Required:    false,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "roll",
+				Description: "Roll initiative for all registered characters",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "reg",
+				Description: "Register your PC's initiative modifier",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "modifier",
+						Description: "Initiative modifier",
+						Required:    false,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "addnpc",
+				Description: "Register an NPC's initiative modifier",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "name",
+						Description: "NPC name (no spaces)",
+						Required:    true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "modifier",
+						Description: "Initiative modifier",
+						Required:    false,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "rem",
+				Description: "Remove your PC from initiative",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "remnpc",
+				Description: "Remove an NPC from initiative",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "name",
+						Description: "NPC name",
+						Required:    true,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "list",
+				Description: "List all registered initiative modifiers",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "clearnpc",
+				Description: "Remove all NPCs from initiative list",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "help",
+				Description: "Display initiative system help (only visible to you)",
+			},
+		},
+	},
+}
+
 func main() {
 
 	var token string
+	var guildID string
 	tokenPtr := flag.String("t", "", "Discord API token")
+	guildPtr := flag.String("g", "", "Guild ID for instant guild-scoped commands (omit for global)")
 	flag.Parse()
 	token = *tokenPtr
+	guildID = *guildPtr
+
 	if token == "" {
 		envToken, foundInEnv := os.LookupEnv("DISCORD_RMUBOT_TOKEN")
 		if !foundInEnv {
@@ -42,12 +187,16 @@ func main() {
 		token = envToken
 	}
 
+	if guildID == "" {
+		guildID = os.Getenv("DISCORD_RMUBOT_GUILD")
+	}
+
 	sess, err := discordgo.New(fmt.Sprintf("Bot %s", token))
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	sess.AddHandler(dispatch)
+	sess.AddHandler(interactionDispatch)
 
 	sess.Identify.Intents = discordgo.IntentsAllWithoutPrivileged
 
@@ -61,6 +210,12 @@ func main() {
 	rollsByUser = make(map[string][]int)
 	initiatives = make(map[string]map[string]initStore)
 
+	for _, cmd := range commands {
+		if _, err := sess.ApplicationCommandCreate(sess.State.User.ID, guildID, cmd); err != nil {
+			log.Fatalf("Cannot create command %q: %v", cmd.Name, err)
+		}
+	}
+
 	fmt.Println("the bot is online")
 
 	sc := make(chan os.Signal, 1)
@@ -69,44 +224,27 @@ func main() {
 
 }
 
-func dispatch(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// don't respond to myself
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-	if !strings.HasPrefix(m.Content, "!") {
+func interactionDispatch(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	if i.Type != discordgo.InteractionApplicationCommand {
 		return
 	}
 
-	tokens := strings.Split(m.Content, " ")
-	command := strings.ToLower(tokens[0])
-	//args := tokens[1:] // let them handle their own args
-	// It's still necessary to pass the session to the handler so they can send messages, unless
-	// they are refactored to return the response as a string for the dispatcher to send.
-	// And the message so they can extract sender ID for things like the averagesHandler.
-	switch command {
-	case "!roll", "!r":
-		//rollHandler(s, m)
-		rwaHandler(s, m)
-	case "!dice", "!d":
-		generalDiceHandler(s, m)
-	case "!dhelp":
-		diceHelpHandler(s, m)
-	case "!init", "!i":
-		initiativeHandler(s, m)
-	case "!say":
-		sayHandler(s, m)
-	case "!avg":
-		averagesHandler(s, m)
-	case "!reset":
-		resetHandler(s, m)
-	case "!help":
-		helpHandler(s, m)
-	default:
-		_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Unknown command: %s", command))
-		if err != nil {
-			log.Println(err)
-		}
+	switch i.ApplicationCommandData().Name {
+	case "roll":
+		rollHandler(s, i)
+	case "dice":
+		generalDiceHandler(s, i)
+	case "say":
+		sayHandler(s, i)
+	case "avg":
+		averagesHandler(s, i)
+	case "reset":
+		resetHandler(s, i)
+	case "help":
+		helpHandler(s, i)
+	case "dhelp":
+		diceHelpHandler(s, i)
+	case "init":
+		initiativeHandler(s, i)
 	}
-
 }

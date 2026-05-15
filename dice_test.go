@@ -10,7 +10,7 @@ import (
 
 func Test_rollOEHelper(t *testing.T) {
 
-	predetermined := roller.WithSequence([]int{2, 100, 50, 6, 50, 98, 50, 2, 100, 100, 50, 100, 100, 50})
+	predetermined := roller.WithSequence([]int{2, 100, 50, 6, 50, 98, 50, 2, 100, 100, 50, 100, 100, 50, 2, 2})
 	d100 := dice.Regular(predetermined, 100)
 
 	roll, details := rollOEHelper(true, false, "", d100)
@@ -36,6 +36,10 @@ func Test_rollOEHelper(t *testing.T) {
 	roll, details = rollOEHelper(true, false, "", d100)
 	assert.Equal(t, 250, roll)
 	assert.Equal(t, "100 100 50", details)
+
+	roll, details = rollOEHelper(true, false, "", d100)
+	assert.Equal(t, 0, roll)
+	assert.Equal(t, "2 -2", details)
 }
 
 func Test_doRoll(t *testing.T) {
@@ -43,23 +47,23 @@ func Test_doRoll(t *testing.T) {
 	predetermined := roller.WithSequence([]int{100, 50, 99, 100, 50, 100, 50, 1, 50})
 	d100 = dice.Regular(predetermined, 100)
 
-	roll, details := doRoll("!roll")
+	roll, details := doRoll(false)
 	assert.Equal(t, 150, roll)
 	assert.Equal(t, "100 50", details)
 
-	roll, details = doRoll("!roll flat")
+	roll, details = doRoll(true)
 	assert.Equal(t, 99, roll)
 	assert.Equal(t, "", details)
 
-	roll, details = doRoll("!roll dfjhjkdfhg")
+	roll, details = doRoll(false)
 	assert.Equal(t, 150, roll)
 	assert.Equal(t, "100 50", details)
 
-	roll, details = doRoll("!roll  ")
+	roll, details = doRoll(false)
 	assert.Equal(t, 150, roll)
 	assert.Equal(t, "100 50", details)
 
-	roll, details = doRoll("!roll  ")
+	roll, details = doRoll(false)
 	assert.Equal(t, -49, roll)
 	assert.Equal(t, "1 -50", details)
 

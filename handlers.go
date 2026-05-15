@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/bwmarrin/discordgo"
@@ -12,181 +11,192 @@ import (
 	jdice "github.com/justinian/dice"
 )
 
-func sendMessage(session *discordgo.Session, channelID string, message string) {
-	_, err := session.ChannelMessageSend(channelID, message)
+func respond(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: message,
+		},
+	})
 	if err != nil {
 		log.Println(err)
 	}
 }
 
-func rwaHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, rollWithArguments(m))
+func respondEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: message,
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+	if err != nil {
+		log.Println(err)
+	}
 }
 
-func rollWithArguments(m *discordgo.MessageCreate) string {
+func rollHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	opts := optionMap(i)
 
-	parts := strings.Split(m.Content, " ")
 	modifier := 0
-	for _, p := range parts[1:] {
-		mod, err := strconv.Atoi(p)
-		if err == nil {
-			modifier += mod
-		}
+	flat := false
+	if opt, ok := opts["modifier"]; ok {
+		modifier = int(opt.IntValue())
+	}
+	if opt, ok := opts["flat"]; ok {
+		flat = opt.BoolValue()
 	}
 
-	// roll the dice
-	diceResult, details := doRoll(m.Content)
-	rollsByUser[m.Author.ID] = append(rollsByUser[m.Author.ID], diceResult)
+	diceResult, details := doRoll(flat)
+	rollsByUser[userID(i)] = append(rollsByUser[userID(i)], diceResult)
 	if details != "" {
 		details = fmt.Sprintf("[%s]", details)
 	}
-
 	diceResult += modifier
 
+	who := whoIsThis(i)
+	var msg string
 	switch {
 	case modifier > 0:
-		return fmt.Sprintf("%s rolls: %s + %d = %d", whoIsThis(m), details, modifier, diceResult)
+		msg = fmt.Sprintf("%s rolls: %s + %d = %d", who, details, modifier, diceResult)
 	case modifier < 0:
-		return fmt.Sprintf("%s rolls: %s %d = %d", whoIsThis(m), details, modifier, diceResult)
+		msg = fmt.Sprintf("%s rolls: %s %d = %d", who, details, modifier, diceResult)
 	default:
-		return fmt.Sprintf("%s rolls: %s %d", whoIsThis(m), details, diceResult)
+		msg = fmt.Sprintf("%s rolls: %s %d", who, details, diceResult)
 	}
+	respond(s, i, msg)
 }
 
-func generalDiceHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, generalDice(m.Content))
-}
-
-func generalDice(req string) string {
-
-	res, _, err := jdice.Roll(req)
+func generalDiceHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	expr := optionMap(i)["expression"].StringValue()
+	res, _, err := jdice.Roll(expr)
 	if err != nil {
-		return "Cannot parse requested dice"
+		respond(s, i, "Cannot parse requested dice")
+		return
 	}
-	return res.String()
+	respond(s, i, res.String())
 }
 
-func sayHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-
-	diceResult, _ := doRoll(m.Content)
-	rollsByUser[m.Author.ID] = append(rollsByUser[m.Author.ID], diceResult)
-	_, err := s.ChannelMessageSendTTS(m.ChannelID, fmt.Sprintf("%d", diceResult))
+func sayHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	diceResult, _ := doRoll(false)
+	rollsByUser[userID(i)] = append(rollsByUser[userID(i)], diceResult)
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: fmt.Sprintf("%d", diceResult),
+			TTS:     true,
+		},
+	})
 	if err != nil {
 		log.Println(err)
 	}
 }
 
-func averagesHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-
+func averagesHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	avgAll := averageSlice(allRolls)
-	avgUser := averageSlice(rollsByUser[m.Author.ID])
-	_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("All: %.1f  You: %.1f", avgAll, avgUser))
-	if err != nil {
-		log.Println(err)
-	}
+	avgUser := averageSlice(rollsByUser[userID(i)])
+	respondEphemeral(s, i, fmt.Sprintf("All: %.1f  You: %.1f", avgAll, avgUser))
 }
 
-func resetHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-
+func resetHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	allRolls = []int{}
 	clear(rollsByUser)
-	_, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Reset averages"))
-	if err != nil {
-		log.Println(err)
-	}
+	respond(s, i, "Reset averages")
 }
 
-func initiativeHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	parts := strings.Split(m.Content, " ")
-	parts = append(parts, "0")
-	parts = append(parts, "0")
-	parts = append(parts, "0")
+func initiativeHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	subcommand := i.ApplicationCommandData().Options[0]
+	opts := optionMapFromOptions(subcommand.Options)
+	who := whoIsThis(i)
+	uid := userID(i)
 
-	who := whoIsThis(m)
+	switch subcommand.Name {
+	case "quick":
+		modifier := 0
+		if opt, ok := opts["modifier"]; ok {
+			modifier = int(opt.IntValue())
+		}
+		result := d10.RollN(2)
+		respond(s, i, fmt.Sprintf("%s: %v + %d = %d", who, result.Rolls, modifier, result.Total+modifier))
 
-	switch parts[1] {
 	case "reg":
-		if initiatives[m.ChannelID] == nil {
-			initiatives[m.ChannelID] = make(map[string]initStore)
+		if initiatives[i.ChannelID] == nil {
+			initiatives[i.ChannelID] = make(map[string]initStore)
 		}
-
-		is := initStore{
-			id:   m.Author.ID,
-			name: who,
-			mod:  0,
-			isPC: false,
+		mod := 0
+		if opt, ok := opts["modifier"]; ok {
+			mod = int(opt.IntValue())
 		}
-		if isNumber(parts[2]) {
-			is.mod = parseIntOrZero(parts[2])
-			is.isPC = true
-		} else {
-			is.id = parts[2]
-			is.name = parts[2]
-			is.mod = parseIntOrZero(parts[3])
-			is.isPC = false
+		initiatives[i.ChannelID][uid] = initStore{id: uid, name: who, mod: mod, isPC: true}
+		respond(s, i, fmt.Sprintf("Registered initiative modifier for %s", who))
+
+	case "addnpc":
+		if initiatives[i.ChannelID] == nil {
+			initiatives[i.ChannelID] = make(map[string]initStore)
 		}
+		name := opts["name"].StringValue()
+		mod := 0
+		if opt, ok := opts["modifier"]; ok {
+			mod = int(opt.IntValue())
+		}
+		initiatives[i.ChannelID][name] = initStore{id: name, name: name, mod: mod, isPC: false}
+		respond(s, i, fmt.Sprintf("Registered initiative modifier for %s", name))
 
-		initiatives[m.ChannelID][is.id] = is
-
-		sendMessage(s, m.ChannelID, fmt.Sprintf("Registered initiative score for %s", is.name))
 	case "rem":
-		if initiatives[m.ChannelID] == nil {
-			initiatives[m.ChannelID] = make(map[string]initStore)
+		if initiatives[i.ChannelID] != nil {
+			delete(initiatives[i.ChannelID], uid)
 		}
-		delId := ""
-		delName := ""
-		if isNumber(parts[2]) {
-			delId = m.Author.ID
-			delName = who
-		} else {
-			delId = parts[2]
-			delName = parts[2]
+		respond(s, i, fmt.Sprintf("Removed initiative modifier for %s", who))
+
+	case "remnpc":
+		name := opts["name"].StringValue()
+		if initiatives[i.ChannelID] != nil {
+			delete(initiatives[i.ChannelID], name)
 		}
-		delete(initiatives[m.ChannelID], delId)
-		sendMessage(s, m.ChannelID, fmt.Sprintf("Removed initiative score for %s", delName))
-	case "roll", "round":
-		response := rollRound(s, m)
-		sendMessage(s, m.ChannelID, response)
+		respond(s, i, fmt.Sprintf("Removed initiative modifier for %s", name))
+
+	case "roll":
+		respond(s, i, rollRound(i.ChannelID))
+
 	case "list":
-		msg := "Registered initiative bonuses:\n"
-		for _, is := range initiatives[m.ChannelID] {
+		msg := "Registered initiative modifiers:\n"
+		for _, is := range initiatives[i.ChannelID] {
 			pc := "NPC"
 			if is.isPC {
 				pc = "PC"
 			}
 			msg += fmt.Sprintf("%s (%s): %d\n", is.name, pc, is.mod)
 		}
-		sendMessage(s, m.ChannelID, msg)
+		respond(s, i, msg)
+
 	case "clearnpc":
-		for id, is := range initiatives[m.ChannelID] {
+		for id, is := range initiatives[i.ChannelID] {
 			if !is.isPC {
-				delete(initiatives[m.ChannelID], id)
+				delete(initiatives[i.ChannelID], id)
 			}
 		}
-		sendMessage(s, m.ChannelID, "Removed all NPCs from initiative list")
+		respond(s, i, "Removed all NPCs from initiative list")
+
 	case "help":
-		initHelpHandler(s, m)
-	default:
-		parts := strings.Split(m.Content, " ")
-		modifier := 0
-		for _, p := range parts[1:] {
-			mod, err := strconv.Atoi(p)
-			if err == nil {
-				modifier += mod
-			}
-		}
-		result := d10.RollN(2)
-		sendMessage(s, m.ChannelID, fmt.Sprintf("%s: %v + %d = %d", whoIsThis(m), result.Rolls, modifier, result.Total+modifier))
+		respondEphemeral(s, i, `Initiative System:
+/init quick [modifier] - Roll 2d10 initiative with an optional modifier
+/init reg [modifier] - Register your PC's initiative modifier
+/init addnpc name [modifier] - Register an NPC's initiative modifier
+/init rem - Remove your PC from the initiative list
+/init remnpc name - Remove an NPC from the initiative list
+/init roll - Roll initiative for all registered characters
+/init list - List all registered initiative modifiers
+/init clearnpc - Remove all NPCs from the initiative list (e.g. after a combat)`)
 	}
 }
 
-func rollRound(s *discordgo.Session, m *discordgo.MessageCreate) string {
+func rollRound(channelID string) string {
 	initRolls := make(map[string]int)
-	for _, is := range initiatives[m.ChannelID] {
+	for _, is := range initiatives[channelID] {
 		initRolls[is.name] = d10.RollN(2).Total + is.mod
 	}
 
-	// Convert map to slice for sorting
 	type nameRoll struct {
 		name string
 		roll int
@@ -196,12 +206,10 @@ func rollRound(s *discordgo.Session, m *discordgo.MessageCreate) string {
 		rolls = append(rolls, nameRoll{name: name, roll: roll})
 	}
 
-	// Sort by roll value descending
 	slices.SortFunc(rolls, func(a, b nameRoll) int {
 		return b.roll - a.roll
 	})
 
-	// Build response message
 	var response strings.Builder
 	response.WriteString("Initiative Order:\n")
 	for _, nr := range rolls {
@@ -210,44 +218,23 @@ func rollRound(s *discordgo.Session, m *discordgo.MessageCreate) string {
 	return response.String()
 }
 
-func parseIntOrZero(s string) int {
-	i, err := strconv.Atoi(s)
-	if err != nil {
-		return 0
-	}
-	return i
+func helpHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	respondEphemeral(s, i, `RMU Bot Commands:
+/roll - make an open ended d100 roll. Add modifier option for a bonus, flat:true for a plain roll.
+/init quick [modifier] - roll initiative (2d10)
+/init help - display initiative system help
+/dice expression - roll general dice. /dhelp for format. Not tracked for averages.
+/avg - display average RM d100 rolls
+/reset - reset all averages`)
 }
 
-func helpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, `RMU Bot Commands:
-!roll, !r - make an open ended d100 roll. Any numbers after this will be treated as modifiers.
-!roll flat - make a plain d100 roll
-!init - roll initiative (2d10). Any numbers after this will be treated as modifiers.
-!init help - display initiative system help
-!dice, !d - roll general dice. !dhelp for dice format. These dice are not tracked for averages.
-!avg - display average RM d100 rolls
-!reset - reset all averages`)
-}
-
-func diceHelpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, `Dice Roll Formatting:
+func diceHelpHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	respondEphemeral(s, i, `Dice Roll Formatting:
 Standard: xdy[[k|d][h|l]z][+/-c] - rolls and sums x y-sided dice, keeping or dropping the lowest or highest z dice and optionally adding or subtracting c. Example: 4d6kh3+4
 Fudge: xdf[+/-c] - rolls and sums x fudge dice (Dice that returns numbers between -1 and 1), and optionally adding or subtracting c. Example: 4df+4
 Versus: xdy[e|r]vt - rolls x y-sided dice, counting the number that roll t or greater.
 EotE: xc [xc ...] - rolls x dice of color c (b, blk, g, p, r, w, y) and returns the aggregate result.
 Adding an e to the Versus rolls above makes dice 'explode' - Dice are rerolled and have the rolled value added to their total when they roll a y. Adding an r makes dice rolling a y add another die to the pool instead.`)
-}
-
-func initHelpHandler(s *discordgo.Session, m *discordgo.MessageCreate) {
-	sendMessage(s, m.ChannelID, `Initiative System:
-!init - roll 2d10 initiative. Any numbers after this are treated as modifiers
-!init reg [modifier] - Register your PC's initiative with a modifier, or 0 if not specified
-!init reg [name] [modifier] - Register a NPC's initiative. Names cannot contain spaces.
-!init rem - remove your PC from the initiative list
-!init rem [name] - remove a NPC from the initiative list
-!init roll, !init round - Roll initiative for all registered characters
-!init list - list all registered initiatives
-!init clearnpc - Remove all NPCs from the initiative list (e.g. after a combat)`)
 }
 
 // helper fns -------------------------
@@ -263,18 +250,45 @@ func averageSlice(numbers []int) float64 {
 	return sum / float64(len(numbers))
 }
 
-func isNumber(s string) bool {
-	if _, err := strconv.Atoi(s); err == nil {
-		return true
+func whoIsThis(i *discordgo.InteractionCreate) string {
+	if i.Member != nil {
+		if i.Member.Nick != "" {
+			return i.Member.Nick
+		}
+		if i.Member.User != nil {
+			if i.Member.User.GlobalName != "" {
+				return i.Member.User.GlobalName
+			}
+			return i.Member.User.Username
+		}
 	}
-	return false
+	if i.User != nil {
+		if i.User.GlobalName != "" {
+			return i.User.GlobalName
+		}
+		return i.User.Username
+	}
+	return "Unknown"
 }
 
-func whoIsThis(m *discordgo.MessageCreate) string {
-	// There's a bug in the underlying library so that m.Member.DisplayName() doesn't work.
-	name := m.Member.Nick
-	if name == "" {
-		name = m.Author.DisplayName()
+func userID(i *discordgo.InteractionCreate) string {
+	if i.Member != nil && i.Member.User != nil {
+		return i.Member.User.ID
 	}
-	return name
+	if i.User != nil {
+		return i.User.ID
+	}
+	return ""
+}
+
+func optionMap(i *discordgo.InteractionCreate) map[string]*discordgo.ApplicationCommandInteractionDataOption {
+	return optionMapFromOptions(i.ApplicationCommandData().Options)
+}
+
+func optionMapFromOptions(options []*discordgo.ApplicationCommandInteractionDataOption) map[string]*discordgo.ApplicationCommandInteractionDataOption {
+	m := make(map[string]*discordgo.ApplicationCommandInteractionDataOption, len(options))
+	for _, opt := range options {
+		m[opt.Name] = opt
+	}
+	return m
 }
