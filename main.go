@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 
 	"github.com/bwmarrin/discordgo"
@@ -17,6 +18,12 @@ var d10 dice.Die
 
 var allRolls []int
 var rollsByUser map[string][]int
+
+// rollsMu guards allRolls and rollsByUser; initMu guards initiatives.
+// discordgo dispatches interactions in separate goroutines, so all shared
+// state must be protected against concurrent reads and writes.
+var rollsMu sync.RWMutex
+var initMu sync.RWMutex
 
 type initStore struct {
 	id   string

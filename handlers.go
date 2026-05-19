@@ -49,7 +49,12 @@ func rollHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 
 	diceResult, details := doRoll(flat)
+
+	// Lock both slices together so allRolls and rollsByUser stay consistent.
+	rollsMu.Lock()
+	allRolls = append(allRolls, diceResult)
 	rollsByUser[userID(i)] = append(rollsByUser[userID(i)], diceResult)
+	rollsMu.Unlock()
 	if details != "" {
 		details = fmt.Sprintf("[%s]", details)
 	}
@@ -80,7 +85,11 @@ func generalDiceHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 
 func sayHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	diceResult, _ := doRoll(false)
+
+	rollsMu.Lock()
+	allRolls = append(allRolls, diceResult)
 	rollsByUser[userID(i)] = append(rollsByUser[userID(i)], diceResult)
+	rollsMu.Unlock()
 	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseChannelMessageWithSource,
 		Data: &discordgo.InteractionResponseData{
@@ -94,14 +103,18 @@ func sayHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 }
 
 func averagesHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	rollsMu.RLock()
 	avgAll := averageSlice(allRolls)
 	avgUser := averageSlice(rollsByUser[userID(i)])
+	rollsMu.RUnlock()
 	respondEphemeral(s, i, fmt.Sprintf("All: %.1f  You: %.1f", avgAll, avgUser))
 }
 
 func resetHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	rollsMu.Lock()
 	allRolls = []int{}
 	clear(rollsByUser)
+	rollsMu.Unlock()
 	respond(s, i, "Reset averages")
 }
 
@@ -121,6 +134,7 @@ func initiativeHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 		respond(s, i, fmt.Sprintf("%s: %v + %d = %d", who, result.Rolls, modifier, result.Total+modifier))
 
 	case "reg":
+		initMu.Lock()
 		if initiatives[i.ChannelID] == nil {
 			initiatives[i.ChannelID] = make(map[string]initStore)
 		}
@@ -129,9 +143,11 @@ func initiativeHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			mod = int(opt.IntValue())
 		}
 		initiatives[i.ChannelID][uid] = initStore{id: uid, name: who, mod: mod, isPC: true}
+		initMu.Unlock()
 		respond(s, i, fmt.Sprintf("Registered initiative modifier for %s", who))
 
 	case "addnpc":
+		initMu.Lock()
 		if initiatives[i.ChannelID] == nil {
 			initiatives[i.ChannelID] = make(map[string]initStore)
 		}
@@ -141,26 +157,37 @@ func initiativeHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			mod = int(opt.IntValue())
 		}
 		initiatives[i.ChannelID][name] = initStore{id: name, name: name, mod: mod, isPC: false}
+		initMu.Unlock()
 		respond(s, i, fmt.Sprintf("Registered initiative modifier for %s", name))
 
 	case "rem":
+		initMu.Lock()
 		if initiatives[i.ChannelID] != nil {
 			delete(initiatives[i.ChannelID], uid)
 		}
+		initMu.Unlock()
 		respond(s, i, fmt.Sprintf("Removed initiative modifier for %s", who))
 
 	case "remnpc":
 		name := opts["name"].StringValue()
+		initMu.Lock()
 		if initiatives[i.ChannelID] != nil {
 			delete(initiatives[i.ChannelID], name)
 		}
+		initMu.Unlock()
 		respond(s, i, fmt.Sprintf("Removed initiative modifier for %s", name))
 
 	case "roll":
-		respond(s, i, rollRound(i.ChannelID))
+		// Hold the read lock for the duration of rollRound so the initiative
+		// map cannot be modified while we iterate over it.
+		initMu.RLock()
+		result := rollRound(i.ChannelID)
+		initMu.RUnlock()
+		respond(s, i, result)
 
 	case "list":
 		msg := "Registered initiative modifiers:\n"
+		initMu.RLock()
 		for _, is := range initiatives[i.ChannelID] {
 			pc := "NPC"
 			if is.isPC {
@@ -168,14 +195,17 @@ func initiativeHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 			}
 			msg += fmt.Sprintf("%s (%s): %d\n", is.name, pc, is.mod)
 		}
+		initMu.RUnlock()
 		respond(s, i, msg)
 
 	case "clearnpc":
+		initMu.Lock()
 		for id, is := range initiatives[i.ChannelID] {
 			if !is.isPC {
 				delete(initiatives[i.ChannelID], id)
 			}
 		}
+		initMu.Unlock()
 		respond(s, i, "Removed all NPCs from initiative list")
 
 	case "help":
@@ -191,6 +221,7 @@ func initiativeHandler(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	}
 }
 
+// rollRound builds the initiative order for a channel. Caller must hold initMu (at least read).
 func rollRound(channelID string) string {
 	initRolls := make(map[string]int)
 	for _, is := range initiatives[channelID] {

@@ -19,8 +19,6 @@ func doRoll(flat bool) (int, string) {
 		diceResult, details = rollOE()
 	}
 
-	allRolls = append(allRolls, diceResult)
-
 	return diceResult, details
 }
 
